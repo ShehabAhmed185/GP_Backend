@@ -6,5 +6,5 @@ pandas
 joblib
 Pillow
 gdown
-scikit-learn
+scikit-learn==1.6.1
 xgboost
