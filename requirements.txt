@@ -1,0 +1,10 @@
+Flask
+flask-cors
+tensorflow-cpu
+numpy
+pandas
+joblib
+Pillow
+gdown
+scikit-learn
+xgboost
