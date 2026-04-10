@@ -6,14 +6,13 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
 from collections import Counter
 import pandas as pd
-
+import gdown
+import gc
 # ==========================================
 # 1. إعدادات الثوابت والخرائط (Configurations)
 # ==========================================
 
 
-import gdown
-import os
 
 MODEL_DIR = "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -58,43 +57,25 @@ CLASS_INDICES = {
 }
 IDX_TO_CLASS = {v: k for k, v in CLASS_INDICES.items()}
 
-# ==========================================
-# 2. محرك تحميل النماذج (Model Loader Engine)
-# ==========================================
+
 class AgriculturalAI:
     def __init__(self, models_dir="models"):
-
         download_models()
         self.models_dir = models_dir
         self.models = {}
-        self.load_all_models()
+        self.load_ml_models()
 
-    def load_all_models(self):
-        print("--- Loading All Models ---")
-        dl_models = ["VGG19.h5", "VGG16.h5", "resnet101v2.h5", "InceptionV3.h5"]
-        for m_name in dl_models:
-            path = os.path.join(self.models_dir, m_name)
-            try:
-                self.models[m_name] = load_model(path, compile=False)
-                print(f"Successfully loaded {m_name}")
-            except Exception as e:
-                print(f"Failed to load {m_name}: {e}")
-
+    def load_ml_models(self):
         try:
             self.models['crop_model'] = joblib.load(os.path.join(self.models_dir, "crop_model.pkl"))
             self.models['le_crop'] = joblib.load(os.path.join(self.models_dir, "crop_label_encoder.pkl"))
             self.models['fert_model'] = joblib.load(os.path.join(self.models_dir, "fertilizer_model_Xg.pkl"))
             self.models['le_fert'] = joblib.load(os.path.join(self.models_dir, "fertilizer_label_encoder.pkl"))
-            print("ML Models (Crop/Fertilizer) loaded successfully.")
+            print("Lightweight ML Models loaded.")
         except Exception as e:
             print(f"ML Models loading error: {e}")
 
-    # ==========================================
-    # 3. وظائف المعالجة (Processing Logic)
-    # ==========================================
-    
     def predict_disease(self, img):
-        """Plant Disease Detection (Ensemble)"""
         results = []
         confidences = []
         
@@ -103,24 +84,40 @@ class AgriculturalAI:
         }
 
         for m_name, size in configs.items():
-            if m_name in self.models:
+            path = os.path.join(self.models_dir, m_name)
+            try:
+                print(f"Lazy loading {m_name}...")
+                current_model = load_model(path, compile=False)
+                
                 img_resized = img.resize((size, size))
                 x = image.img_to_array(img_resized) / 255.0
                 x = np.expand_dims(x, axis=0)
-                preds = self.models[m_name].predict(x, verbose=0)[0]
+                
+                preds = current_model.predict(x, verbose=0)[0]
                 idx = np.argmax(preds)
                 results.append(idx)
                 confidences.append(preds[idx])
 
+                del current_model
+                tf.keras.backend.clear_session()
+                gc.collect()
+                
+            except Exception as e:
+                print(f"Error processing {m_name}: {e}")
+
+        if not results:
+            return {"error": "All models failed to load"}
+
         occurence = Counter(results)
         most_common, count = occurence.most_common(1)[0]
-        
         final_idx = most_common if count >= 2 else results[np.argmax(confidences)]
+        
         return {
             "disease": IDX_TO_CLASS[final_idx],
             "confidence": float(confidences[results.index(final_idx)]),
             "agreement": f"{count}/4"
         }
+
 
     def recommend_crop_and_fert(self, env_data):
         """Fertilizer Recommendtion"""
@@ -259,33 +256,3 @@ if __name__ == "__main__":
 
 
 
-
-# # ==========================================
-# # 4. نقطة الدخول الرئيسية (Application Entry)
-# # ==========================================
-# if __name__ == "__main__":
-#     ai_system = AgriculturalAI(models_dir="..") 
-
-#     print("\n" + "="*40)
-#     print("--- STEP 1: Disease Diagnosis ---")
-#     image_path = os.path.join("..", "data", "val_imgs", "PlantVillage", "val","Apple___Cedar_apple_rust","4e6676b6-154c-4f7d-a355-bcc00a397c3d___FREC_C.Rust 9853.jpg")   
-#     if os.path.exists(image_path):
-#         disease_result = ai_system.predict_disease(image_path)
-#         print(f"Result: {disease_result}")
-#     else:
-#         print("Image file not found, skipping diagnosis.")
-
-#     print("\n--- STEP 2: Crop & Fertilizer Recommendation ---")
-#     user_env_input = {
-#         "Nitrogen": 90,
-#         "Phosphorus": 42,
-#         "Potassium": 43,
-#         "pH": 6.5,
-#         "Rainfall": 200,
-#         "Temperature": 25,
-#         "Soil_color": "Black"
-#     }
-    
-#     reco_result = ai_system.recommend_crop_and_fert(user_env_input)
-#     print(f"Recommendation: {reco_result}")
-#     print("="*40)
